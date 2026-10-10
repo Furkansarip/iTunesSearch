@@ -26,11 +26,12 @@ final class SearchPresenter: SearchPresentationLogic {
             return .idle
         case .loading:
             return .loading
+        case .results(let apps) where apps.isEmpty:
+            return .empty(message: "No apps match your search.")
         case .results(let apps):
-            let sections = apps
-                .filter { !$0.screenshotURLs.isEmpty }
-                .map { Search.FetchApps.AppSection(id: $0.id, title: $0.name, subtitle: $0.developer, screenshotURLs: $0.screenshotURLs) }
-            return sections.isEmpty ? .empty(message: "No apps with screenshots found.") : .results(sections)
+            return .results(apps.map {
+                Search.FetchApps.AppSection(id: $0.id, title: $0.name, subtitle: $0.developer, screenshotURLs: $0.screenshotURLs)
+            })
         case .failure(let error):
             return .error(message: message(for: error))
         }

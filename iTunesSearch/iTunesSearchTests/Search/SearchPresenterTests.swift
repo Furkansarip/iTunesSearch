@@ -29,14 +29,17 @@ final class SearchPresenterTests: XCTestCase {
 
         presenter.presentSearch(response: .loading)
         presenter.presentSearch(response: .results([withScreenshots, withoutScreenshots]))
-        presenter.presentSearch(response: .results([withoutScreenshots]))
+        presenter.presentSearch(response: .results([]))
         presenter.presentSearch(response: .failure(APIError.httpStatus(429)))
         presenter.presentSearch(response: .idle)
 
         XCTAssertEqual(display.viewModels, [
             .loading,
-            .results([.init(id: 1, title: "Chess", subtitle: "Dev", screenshotURLs: [testURL("1")])]),
-            .empty(message: "No apps with screenshots found."),
+            .results([
+                .init(id: 1, title: "Chess", subtitle: "Dev", screenshotURLs: [testURL("1")]),
+                .init(id: 2, title: "iPad Only", subtitle: "Dev", screenshotURLs: []),
+            ]),
+            .empty(message: "No apps match your search."),
             .error(message: "Too many searches. Please wait a moment and try again."),
             .idle,
         ])

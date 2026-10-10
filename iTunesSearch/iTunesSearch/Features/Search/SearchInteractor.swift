@@ -7,6 +7,8 @@ import Foundation
 
 protocol SearchBusinessLogic: AnyObject {
     func search(request: Search.FetchApps.Request)
+    /// Re-runs the current term immediately, even if it has not changed.
+    func retry()
 }
 
 final class SearchInteractor: SearchBusinessLogic {
@@ -40,6 +42,15 @@ final class SearchInteractor: SearchBusinessLogic {
         guard term != currentTerm else { return }
 
         currentTerm = term
+        startSearch(debounce: debounce)
+    }
+
+    func retry() {
+        startSearch(debounce: .zero)
+    }
+
+    private func startSearch(debounce: Duration) {
+        let term = currentTerm
         requestID += 1
         let id = requestID
         searchTask?.cancel()
@@ -51,7 +62,7 @@ final class SearchInteractor: SearchBusinessLogic {
         }
 
         presenter.presentSearch(response: .loading)
-        searchTask = Task { [weak self, imageDownloader, service, debounce] in
+        searchTask = Task { [weak self, imageDownloader, service] in
             // Downloader calls carry `id`, so they are ignored if they arrive after a newer search's.
             await imageDownloader.beginSearch(id)
             do {

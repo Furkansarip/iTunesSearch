@@ -34,7 +34,8 @@ actor ImageDownloader {
     }
 
     private let fetch: Fetch
-    private let cache = NSCache<NSURL, UIImage>()
+    /// NSCache is documented as thread-safe but not annotated `Sendable`.
+    private nonisolated(unsafe) let cache = NSCache<NSURL, UIImage>()
     private var tasks: [URL: Entry] = [:]
     private var activeDownloads = 0
     private var waiters: [Waiter] = []
@@ -52,6 +53,12 @@ actor ImageDownloader {
     }
 
     // MARK: Public API
+
+    /// Synchronous cache lookup (NSCache is thread-safe), so reused cells can show cached images
+    /// in the same layout pass instead of flashing a placeholder.
+    nonisolated func cachedImage(for url: URL) -> UIImage? {
+        cache.object(forKey: url as NSURL)
+    }
 
     /// Cancelling the caller only stops its wait; the shared download continues for other requesters
     /// until `cancelAll()` is called.
