@@ -95,8 +95,13 @@ final class SearchViewController: UIViewController {
         configuration.interSectionSpacing = 4
 
         return UICollectionViewCompositionalLayout(sectionProvider: { [weak self] index, _ in
-            let hasScreenshots = self.map { index < $0.sections.count && !$0.sections[index].screenshotURLs.isEmpty } ?? false
-            let section = hasScreenshots ? Self.makeScreenshotsSection() : Self.makeNoScreenshotsSection()
+            let appSection = self.flatMap { index < $0.sections.count ? $0.sections[index] : nil }
+            let section: NSCollectionLayoutSection
+            if let appSection, !appSection.screenshotURLs.isEmpty {
+                section = Self.makeScreenshotsSection(landscape: appSection.usesLandscapeScreenshots)
+            } else {
+                section = Self.makeNoScreenshotsSection()
+            }
             section.boundarySupplementaryItems = [
                 NSCollectionLayoutBoundarySupplementaryItem(
                     layoutSize: NSCollectionLayoutSize(widthDimension: .fractionalWidth(1), heightDimension: .estimated(64)),
@@ -108,12 +113,14 @@ final class SearchViewController: UIViewController {
         }, configuration: configuration)
     }
 
-    private static func makeScreenshotsSection() -> NSCollectionLayoutSection {
+    /// Portrait rows use a 9:16 cell, landscape rows a 16:9 cell, matching typical App Store screenshots.
+    private static func makeScreenshotsSection(landscape: Bool) -> NSCollectionLayoutSection {
         let item = NSCollectionLayoutItem(
             layoutSize: NSCollectionLayoutSize(widthDimension: .fractionalWidth(1), heightDimension: .fractionalHeight(1))
         )
+        let size = landscape ? CGSize(width: 288, height: 162) : CGSize(width: 135, height: 240)
         let group = NSCollectionLayoutGroup.horizontal(
-            layoutSize: NSCollectionLayoutSize(widthDimension: .absolute(135), heightDimension: .absolute(240)),
+            layoutSize: NSCollectionLayoutSize(widthDimension: .absolute(size.width), heightDimension: .absolute(size.height)),
             subitems: [item]
         )
         let section = NSCollectionLayoutSection(group: group)

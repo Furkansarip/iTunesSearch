@@ -65,14 +65,12 @@ final class ScreenshotPreviewViewController: UIViewController {
         view.addSubview(failureView)
         view.addSubview(closeButton)
 
+        imageView.snp.makeConstraints { $0.edges.equalTo(view.safeAreaLayoutGuide) }
+        // Overlay: the button floats above the image and does not affect its layout.
         closeButton.snp.makeConstraints { make in
             make.top.equalTo(view.safeAreaLayoutGuide).offset(8)
             make.trailing.equalTo(view.safeAreaLayoutGuide).inset(16)
-        }
-        imageView.snp.makeConstraints { make in
-            make.top.equalTo(closeButton.snp.bottom).offset(12)
-            make.leading.trailing.equalTo(view.safeAreaLayoutGuide).inset(8)
-            make.bottom.equalTo(view.safeAreaLayoutGuide).inset(8)
+            make.height.equalTo(36)
         }
         activityIndicator.snp.makeConstraints { $0.center.equalTo(imageView) }
         failureView.snp.makeConstraints { $0.edges.equalTo(imageView) }

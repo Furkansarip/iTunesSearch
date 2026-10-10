@@ -31,6 +31,7 @@ enum Search {
             let title: String
             let subtitle: String
             let screenshotURLs: [URL]
+            var usesLandscapeScreenshots = false
         }
     }
 }

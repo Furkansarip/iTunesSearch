@@ -30,11 +30,26 @@ final class SearchPresenter: SearchPresentationLogic {
             return .empty(message: "No apps match your search.")
         case .results(let apps):
             return .results(apps.map {
-                Search.FetchApps.AppSection(id: $0.id, title: $0.name, subtitle: $0.developer, screenshotURLs: $0.screenshotURLs)
+                Search.FetchApps.AppSection(
+                    id: $0.id,
+                    title: $0.name,
+                    subtitle: $0.developer,
+                    screenshotURLs: $0.screenshotURLs,
+                    usesLandscapeScreenshots: $0.screenshotURLs.first.map(isLandscape) ?? false
+                )
             })
         case .failure(let error):
             return .error(message: message(for: error))
         }
+    }
+
+    /// iTunes screenshot URLs end in a size component such as `406x228bb.jpg`.
+    /// Unknown formats fall back to portrait, the most common orientation.
+    private func isLandscape(_ url: URL) -> Bool {
+        guard let match = url.lastPathComponent.firstMatch(of: /^(\d+)x(\d+)/),
+              let width = Int(match.1), let height = Int(match.2)
+        else { return false }
+        return width > height
     }
 
     private func message(for error: any Error) -> String {
