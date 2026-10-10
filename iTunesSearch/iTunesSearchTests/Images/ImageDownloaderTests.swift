@@ -278,6 +278,28 @@ final class ImageDownloaderTests: XCTestCase {
         XCTAssertLessThanOrEqual(peak, 3)
     }
 
+    /// Regression: with rapid query changes, an obsolete search task may reach the actor after a newer
+    /// one. Its late `beginSearch` and `prefetch` must not cancel or replace the newer search's downloads.
+    func testLateCallsFromObsoleteSearchDoNotAffectNewerSearch() async throws {
+        let network = FakeImageNetwork()
+        let downloader = ImageDownloader(maxConcurrentDownloads: 10, fetch: network.fetch)
+        let newer = [testURL("new-0"), testURL("new-1")]
+        let obsolete = [testURL("old-0"), testURL("old-1")]
+
+        await downloader.beginSearch(2)
+        await downloader.prefetch(newer, forSearch: 2)
+        try await waitUntil { await network.startedURLs.count == 2 }
+
+        await downloader.beginSearch(1)
+        await downloader.prefetch(obsolete, forSearch: 1)
+        try await settle()
+
+        let started = await network.startedURLs
+        let cancelled = await network.cancelledURLs
+        XCTAssertEqual(Set(started), Set(newer), "The obsolete search must not start downloads")
+        XCTAssertTrue(cancelled.isEmpty, "The obsolete search must not cancel newer downloads")
+    }
+
     // MARK: Helpers
 
     /// Completes each URL once it reaches the network, in whatever order the downloader starts them.

@@ -18,6 +18,9 @@ nonisolated enum ImageDownloaderError: Error, Equatable {
 actor ImageDownloader {
     typealias Fetch = @Sendable (URL) async throws -> Data
 
+    /// The concurrency limit is per instance, so the app uses this single instance everywhere.
+    static let shared = ImageDownloader()
+
     let maxConcurrentDownloads: Int
 
     private nonisolated struct Entry {
@@ -35,6 +38,7 @@ actor ImageDownloader {
     private var tasks: [URL: Entry] = [:]
     private var activeDownloads = 0
     private var waiters: [Waiter] = []
+    private var currentSearchID = 0
 
     init(
         maxConcurrentDownloads: Int = 3,
@@ -71,6 +75,22 @@ actor ImageDownloader {
             entry.task.cancel()
         }
         tasks.removeAll()
+    }
+
+    // MARK: Search scoping
+
+    /// Starts search `searchID` by cancelling all downloads. Search IDs must increase monotonically.
+    /// Calls carrying an older ID are ignored, so an obsolete task that reaches the actor late
+    /// cannot cancel or prefetch on behalf of a search that has already been replaced.
+    func beginSearch(_ searchID: Int) {
+        guard searchID > currentSearchID else { return }
+        currentSearchID = searchID
+        cancelAll()
+    }
+
+    func prefetch(_ urls: [URL], forSearch searchID: Int) {
+        guard searchID == currentSearchID else { return }
+        prefetch(urls)
     }
 
     // MARK: Scheduling
