@@ -6,6 +6,10 @@
 	objectVersion = 77;
 	objects = {
 
+/* Begin PBXBuildFile section */
+		749B4887307A598D008B29CC /* SnapKit in Frameworks */ = {isa = PBXBuildFile; productRef = 749B4886307A598D008B29CC /* SnapKit */; };
+/* End PBXBuildFile section */
+
 /* Begin PBXContainerItemProxy section */
 		749B4868307A556D008B29CC /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
@@ -65,6 +69,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				749B4887307A598D008B29CC /* SnapKit in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -125,6 +130,7 @@
 			);
 			name = iTunesSearch;
 			packageProductDependencies = (
+				749B4886307A598D008B29CC /* SnapKit */,
 			);
 			productName = iTunesSearch;
 			productReference = 749B4851307A556C008B29CC /* iTunesSearch.app */;
@@ -208,6 +214,9 @@
 			);
 			mainGroup = 749B4848307A556C008B29CC;
 			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				749B4885307A598D008B29CC /* XCRemoteSwiftPackageReference "snapkit" */,
+			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 749B4852307A556C008B29CC /* Products */;
 			projectDirPath = "";
@@ -591,6 +600,25 @@
 			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		749B4885307A598D008B29CC /* XCRemoteSwiftPackageReference "snapkit" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/snapkit/snapkit";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 6.0.0;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		749B4886307A598D008B29CC /* SnapKit */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 749B4885307A598D008B29CC /* XCRemoteSwiftPackageReference "snapkit" */;
+			productName = SnapKit;
+		};
+/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = 749B4849307A556C008B29CC /* Project object */;
 }
