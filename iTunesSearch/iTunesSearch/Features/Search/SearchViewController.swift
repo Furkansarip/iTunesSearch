@@ -8,6 +8,7 @@ import UIKit
 
 final class SearchViewController: UIViewController {
     private let interactor: SearchBusinessLogic
+    private let router: SearchRouter
     private let imageDownloader: ImageDownloader
     private var sections: [Search.FetchApps.AppSection] = []
 
@@ -18,13 +19,16 @@ final class SearchViewController: UIViewController {
     static func build(imageDownloader: ImageDownloader = .shared) -> SearchViewController {
         let presenter = SearchPresenter()
         let interactor = SearchInteractor(presenter: presenter, imageDownloader: imageDownloader)
-        let viewController = SearchViewController(interactor: interactor, imageDownloader: imageDownloader)
+        let router = SearchRouter(imageDownloader: imageDownloader)
+        let viewController = SearchViewController(interactor: interactor, router: router, imageDownloader: imageDownloader)
         presenter.viewController = viewController
+        router.viewController = viewController
         return viewController
     }
 
-    init(interactor: SearchBusinessLogic, imageDownloader: ImageDownloader) {
+    init(interactor: SearchBusinessLogic, router: SearchRouter, imageDownloader: ImageDownloader) {
         self.interactor = interactor
+        self.router = router
         self.imageDownloader = imageDownloader
         super.init(nibName: nil, bundle: nil)
     }
@@ -64,6 +68,7 @@ final class SearchViewController: UIViewController {
         collectionView.backgroundView = stateView
         collectionView.keyboardDismissMode = .onDrag
         collectionView.dataSource = self
+        collectionView.delegate = self
         collectionView.register(ScreenshotCell.self, forCellWithReuseIdentifier: ScreenshotCell.reuseIdentifier)
         collectionView.register(NoScreenshotsCell.self, forCellWithReuseIdentifier: NoScreenshotsCell.reuseIdentifier)
         collectionView.register(
@@ -195,6 +200,20 @@ extension SearchViewController: UISearchBarDelegate {
 
     func searchBarSearchButtonClicked(_ searchBar: UISearchBar) {
         searchBar.resignFirstResponder()
+    }
+}
+
+// MARK: - UICollectionViewDelegate
+
+extension SearchViewController: UICollectionViewDelegate {
+    func collectionView(_ collectionView: UICollectionView, shouldSelectItemAt indexPath: IndexPath) -> Bool {
+        !sections[indexPath.section].screenshotURLs.isEmpty
+    }
+
+    func collectionView(_ collectionView: UICollectionView, didSelectItemAt indexPath: IndexPath) {
+        collectionView.deselectItem(at: indexPath, animated: false)
+        searchBar.resignFirstResponder()
+        router.routeToScreenshotPreview(url: sections[indexPath.section].screenshotURLs[indexPath.item])
     }
 }
 

@@ -44,7 +44,7 @@ final class ScreenshotCell: UICollectionViewCell {
         activityIndicator.snp.makeConstraints { $0.center.equalToSuperview() }
 
         isAccessibilityElement = true
-        accessibilityTraits = .image
+        accessibilityTraits = [.image, .button]
     }
 
     @available(*, unavailable)
