@@ -218,9 +218,13 @@ extension SearchViewController: UICollectionViewDelegate {
     }
 
     func collectionView(_ collectionView: UICollectionView, didSelectItemAt indexPath: IndexPath) {
+        guard sections.indices.contains(indexPath.section) else { return }
+        let urls = sections[indexPath.section].screenshotURLs
+        guard urls.indices.contains(indexPath.item) else { return }
+        let imageURL = urls[indexPath.item]
         collectionView.deselectItem(at: indexPath, animated: false)
         searchBar.resignFirstResponder()
-        router.routeToScreenshotPreview(url: sections[indexPath.section].screenshotURLs[indexPath.item])
+        router.routeToScreenshotPreview(url: imageURL)
     }
 }
 
