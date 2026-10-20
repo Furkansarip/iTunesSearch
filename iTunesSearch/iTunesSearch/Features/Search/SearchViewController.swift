@@ -8,7 +8,6 @@ import UIKit
 
 final class SearchViewController: UIViewController {
     private let interactor: SearchBusinessLogic
-    private let router: SearchRouter
     private let imageDownloader: ImageDownloader
     private var sections: [Search.FetchApps.AppSection] = []
 
@@ -18,17 +17,16 @@ final class SearchViewController: UIViewController {
 
     static func build(imageDownloader: ImageDownloader = .shared) -> SearchViewController {
         let presenter = SearchPresenter()
-        let interactor = SearchInteractor(presenter: presenter, imageDownloader: imageDownloader)
         let router = SearchRouter(imageDownloader: imageDownloader)
-        let viewController = SearchViewController(interactor: interactor, router: router, imageDownloader: imageDownloader)
+        let interactor = SearchInteractor(presenter: presenter, router: router, imageDownloader: imageDownloader)
+        let viewController = SearchViewController(interactor: interactor, imageDownloader: imageDownloader)
         presenter.viewController = viewController
         router.viewController = viewController
         return viewController
     }
 
-    init(interactor: SearchBusinessLogic, router: SearchRouter, imageDownloader: ImageDownloader) {
+    init(interactor: SearchBusinessLogic, imageDownloader: ImageDownloader) {
         self.interactor = interactor
-        self.router = router
         self.imageDownloader = imageDownloader
         super.init(nibName: nil, bundle: nil)
     }
@@ -68,6 +66,7 @@ final class SearchViewController: UIViewController {
         collectionView.backgroundView = stateView
         collectionView.keyboardDismissMode = .onDrag
         collectionView.dataSource = self
+        collectionView.prefetchDataSource = self
         collectionView.delegate = self
         collectionView.register(ScreenshotCell.self, forCellWithReuseIdentifier: ScreenshotCell.reuseIdentifier)
         collectionView.register(NoScreenshotsCell.self, forCellWithReuseIdentifier: NoScreenshotsCell.reuseIdentifier)
@@ -97,7 +96,7 @@ final class SearchViewController: UIViewController {
         return UICollectionViewCompositionalLayout(sectionProvider: { [weak self] index, _ in
             let appSection = self.flatMap { index < $0.sections.count ? $0.sections[index] : nil }
             let section: NSCollectionLayoutSection
-            if let appSection, !appSection.screenshotURLs.isEmpty {
+            if let appSection, !appSection.screenshots.isEmpty {
                 section = Self.makeScreenshotsSection(landscape: appSection.usesLandscapeScreenshots)
             } else {
                 section = Self.makeNoScreenshotsSection()
@@ -196,6 +195,13 @@ extension SearchViewController: SearchDisplayLogic {
         collectionView.reloadData()
         collectionView.setContentOffset(CGPoint(x: 0, y: -collectionView.adjustedContentInset.top), animated: false)
     }
+
+    func displayFavorite(viewModel: Search.ToggleFavorite.ViewModel) {
+        let indexPath = IndexPath(item: viewModel.itemIndex, section: viewModel.sectionIndex)
+        guard item(at: indexPath)?.id == viewModel.item.id else { return }
+        sections[indexPath.section].screenshots[indexPath.item] = viewModel.item
+        collectionView.reconfigureItems(at: [indexPath])
+    }
 }
 
 // MARK: - UISearchBarDelegate
@@ -214,17 +220,34 @@ extension SearchViewController: UISearchBarDelegate {
 
 extension SearchViewController: UICollectionViewDelegate {
     func collectionView(_ collectionView: UICollectionView, shouldSelectItemAt indexPath: IndexPath) -> Bool {
-        !sections[indexPath.section].screenshotURLs.isEmpty
+        item(at: indexPath) != nil
     }
 
     func collectionView(_ collectionView: UICollectionView, didSelectItemAt indexPath: IndexPath) {
-        guard sections.indices.contains(indexPath.section) else { return }
-        let urls = sections[indexPath.section].screenshotURLs
-        guard urls.indices.contains(indexPath.item) else { return }
-        let imageURL = urls[indexPath.item]
         collectionView.deselectItem(at: indexPath, animated: false)
+        guard let item = item(at: indexPath) else { return }
         searchBar.resignFirstResponder()
-        router.routeToScreenshotPreview(url: imageURL)
+        interactor.selectScreenshot(request: .init(screenshot: item.id))
+    }
+
+    /// Index paths are only used to look up the currently displayed item; requests carry its identity.
+    private func item(at indexPath: IndexPath) -> Search.ScreenshotItemViewModel? {
+        guard sections.indices.contains(indexPath.section),
+              sections[indexPath.section].screenshots.indices.contains(indexPath.item)
+        else { return nil }
+        return sections[indexPath.section].screenshots[indexPath.item]
+    }
+}
+
+// MARK: - UICollectionViewDataSourcePrefetching
+
+extension SearchViewController: UICollectionViewDataSourcePrefetching {
+    func collectionView(_ collectionView: UICollectionView, prefetchItemsAt indexPaths: [IndexPath]) {
+        interactor.prefetchScreenshots(request: .init(screenshots: indexPaths.compactMap { item(at: $0)?.id }))
+    }
+
+    func collectionView(_ collectionView: UICollectionView, cancelPrefetchingForItemsAt indexPaths: [IndexPath]) {
+        interactor.cancelScreenshotPrefetching(request: .init(screenshots: indexPaths.compactMap { item(at: $0)?.id }))
     }
 }
 
@@ -236,22 +259,20 @@ extension SearchViewController: UICollectionViewDataSource {
     }
 
     func collectionView(_ collectionView: UICollectionView, numberOfItemsInSection section: Int) -> Int {
-        max(sections[section].screenshotURLs.count, 1)
+        max(sections[section].screenshots.count, 1)
     }
 
     func collectionView(_ collectionView: UICollectionView, cellForItemAt indexPath: IndexPath) -> UICollectionViewCell {
-        let section = sections[indexPath.section]
-
-        guard !section.screenshotURLs.isEmpty else {
+        guard let item = item(at: indexPath) else {
             return collectionView.dequeueReusableCell(withReuseIdentifier: NoScreenshotsCell.reuseIdentifier, for: indexPath)
         }
 
         let cell = collectionView.dequeueReusableCell(withReuseIdentifier: ScreenshotCell.reuseIdentifier, for: indexPath) as! ScreenshotCell
-        cell.configure(
-            with: section.screenshotURLs[indexPath.item],
-            imageDownloader: imageDownloader,
-            accessibilityLabel: "\(section.title) screenshot \(indexPath.item + 1) of \(section.screenshotURLs.count)"
-        )
+        cell.configure(with: item, imageDownloader: imageDownloader)
+        let screenshot = item.id
+        cell.onToggleFavorite = { [weak self] in
+            self?.interactor.toggleFavorite(request: .init(screenshot: screenshot))
+        }
         return cell
     }
 

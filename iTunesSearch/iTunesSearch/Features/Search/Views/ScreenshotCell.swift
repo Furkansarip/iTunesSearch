@@ -12,7 +12,9 @@ final class ScreenshotCell: UICollectionViewCell {
     private let imageView = UIImageView()
     private let statusImageView = UIImageView()
     private let activityIndicator = UIActivityIndicatorView(style: .medium)
+    private let favoriteButton = UIButton(configuration: .gray())
 
+    var onToggleFavorite: (() -> Void)?
     private var configurationGeneration = 0
     private var loadTask: Task<Void, Never>?
 
@@ -32,16 +34,24 @@ final class ScreenshotCell: UICollectionViewCell {
 
         activityIndicator.hidesWhenStopped = true
 
+        favoriteButton.configuration?.cornerStyle = .capsule
+        favoriteButton.addAction(UIAction { [weak self] _ in self?.onToggleFavorite?() }, for: .primaryActionTriggered)
+
         contentView.addSubview(imageView)
         contentView.addSubview(statusImageView)
         contentView.addSubview(activityIndicator)
+        contentView.addSubview(favoriteButton)
 
-        imageView.snp.makeConstraints { $0.edges.equalToSuperview() }
+        imageView.snp.makeConstraints { $0.edges.equalToSuperview().inset(6) }
         statusImageView.snp.makeConstraints { make in
             make.center.equalToSuperview()
             make.size.equalTo(28)
         }
         activityIndicator.snp.makeConstraints { $0.center.equalToSuperview() }
+        favoriteButton.snp.makeConstraints { make in
+            make.top.trailing.equalToSuperview().inset(10)
+            make.size.equalTo(32)
+        }
 
         isAccessibilityElement = true
         accessibilityTraits = [.image, .button]
@@ -56,10 +66,21 @@ final class ScreenshotCell: UICollectionViewCell {
         super.prepareForReuse()
         cancelLoad()
         showEmpty()
+        onToggleFavorite = nil
     }
 
-    func configure(with url: URL, imageDownloader: ImageDownloader, accessibilityLabel: String) {
-        self.accessibilityLabel = accessibilityLabel
+    func configure(with item: Search.ScreenshotItemViewModel, imageDownloader: ImageDownloader) {
+        accessibilityLabel = item.accessibilityLabel
+        contentView.backgroundColor = item.isFavorite ? .systemRed : .secondarySystemBackground
+        favoriteButton.configuration?.image = UIImage(systemName: item.isFavorite ? "heart.fill" : "heart")
+        let favoriteTitle = item.isFavorite ? "Remove from Favorites" : "Add to Favorites"
+        favoriteButton.accessibilityLabel = favoriteTitle
+        accessibilityCustomActions = [UIAccessibilityCustomAction(name: favoriteTitle) { [weak self] _ in
+            self?.onToggleFavorite?()
+            return true
+        }]
+
+        let url = item.imageURL
         cancelLoad()
         let generation = configurationGeneration
 

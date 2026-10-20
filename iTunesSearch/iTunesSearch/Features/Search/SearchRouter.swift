@@ -5,7 +5,11 @@
 
 import UIKit
 
-final class SearchRouter {
+protocol SearchRoutingLogic: AnyObject {
+    func routeToScreenshotPreview(url: URL)
+}
+
+final class SearchRouter: SearchRoutingLogic {
     weak var viewController: UIViewController?
     private let imageDownloader: ImageDownloader
 
