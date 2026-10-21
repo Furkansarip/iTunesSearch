@@ -300,7 +300,77 @@ final class ImageDownloaderTests: XCTestCase {
         XCTAssertTrue(cancelled.isEmpty, "The obsolete search must not cancel newer downloads")
     }
 
+    // MARK: Priority
+
+    func testVisibleRequestOvertakesQueuedPrefetches() async throws {
+        let (downloader, network) = try await makeSaturatedDownloader()
+        let low = [testURL("low-0"), testURL("low-1")]
+        let visible = testURL("visible")
+
+        await downloader.prefetch(low)
+        try await settle()
+        let request = Task { try await downloader.image(for: visible) }
+        try await settle()
+
+        let order = try await drainQueue(on: network, expectingTotal: 6)
+        XCTAssertEqual(order, [visible] + low)
+        _ = try await request.value
+    }
+
+    func testQueuedPrefetchIsPromotedWithoutDuplicateFetch() async throws {
+        let (downloader, network) = try await makeSaturatedDownloader()
+        let low = [testURL("low-0"), testURL("low-1")]
+
+        await downloader.prefetch(low)
+        try await settle()
+        let request = Task { try await downloader.image(for: low[1]) }
+        try await settle()
+
+        let order = try await drainQueue(on: network, expectingTotal: 5)
+        XCTAssertEqual(order, [low[1], low[0]])
+        _ = try await request.value
+    }
+
+    func testCancelPrefetchCancelsOnlyQueuedPrefetches() async throws {
+        let (downloader, network) = try await makeSaturatedDownloader()
+        let unneeded = testURL("unneeded")
+        let promoted = testURL("promoted")
+
+        await downloader.prefetch([unneeded, promoted])
+        try await settle()
+        let request = Task { try await downloader.image(for: promoted) }
+        try await settle()
+        await downloader.cancelPrefetch([unneeded, promoted])
+
+        let order = try await drainQueue(on: network, expectingTotal: 4)
+        XCTAssertEqual(order, [promoted], "A prefetch also needed by a visible request is kept")
+        _ = try await request.value
+    }
+
     // MARK: Helpers
+
+    /// Occupies all three slots, so further requests queue.
+    private func makeSaturatedDownloader() async throws -> (ImageDownloader, FakeImageNetwork) {
+        let network = FakeImageNetwork()
+        let downloader = ImageDownloader(fetch: network.fetch)
+        await downloader.prefetch((0..<3).map { testURL("blocker-\($0)") })
+        try await waitUntil { await network.startedURLs.count == 3 }
+        return (downloader, network)
+    }
+
+    /// Frees one slot at a time and returns the URLs started after the three blockers, in order.
+    private func drainQueue(on network: FakeImageNetwork, expectingTotal total: Int) async throws -> [URL] {
+        for expectedStarted in 4...total {
+            await network.completeNext()
+            try await waitUntil { await network.startedURLs.count == expectedStarted }
+        }
+        while await network.activeCount > 0 {
+            await network.completeNext()
+            try await Task.sleep(for: .milliseconds(5))
+        }
+        try await settle()
+        return Array(await network.startedURLs.dropFirst(3))
+    }
 
     /// Completes each URL once it reaches the network, in whatever order the downloader starts them.
     private func completeRequests(for urls: [URL], on network: FakeImageNetwork) async throws {

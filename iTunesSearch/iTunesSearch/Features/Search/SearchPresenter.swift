@@ -7,10 +7,12 @@ import Foundation
 
 protocol SearchPresentationLogic: AnyObject {
     func presentSearch(response: Search.FetchApps.Response)
+    func presentFavorite(response: Search.ToggleFavorite.Response)
 }
 
 protocol SearchDisplayLogic: AnyObject {
     func displaySearch(viewModel: Search.FetchApps.ViewModel)
+    func displayFavorite(viewModel: Search.ToggleFavorite.ViewModel)
 }
 
 final class SearchPresenter: SearchPresentationLogic {
@@ -20,27 +22,47 @@ final class SearchPresenter: SearchPresentationLogic {
         viewController?.displaySearch(viewModel: viewModel(for: response))
     }
 
+    func presentFavorite(response: Search.ToggleFavorite.Response) {
+        viewController?.displayFavorite(viewModel: .init(
+            sectionIndex: response.appIndex,
+            itemIndex: response.screenshotIndex,
+            item: item(for: response.app, at: response.screenshotIndex, isFavorite: response.isFavorite)
+        ))
+    }
+
     private func viewModel(for response: Search.FetchApps.Response) -> Search.FetchApps.ViewModel {
         switch response {
         case .idle:
             return .idle
         case .loading:
             return .loading
-        case .results(let apps) where apps.isEmpty:
+        case .results(let apps, _) where apps.isEmpty:
             return .empty(message: "No apps match your search.")
-        case .results(let apps):
-            return .results(apps.map {
-                Search.FetchApps.AppSection(
-                    id: $0.id,
-                    title: $0.name,
-                    subtitle: $0.developer,
-                    screenshotURLs: $0.screenshotURLs,
-                    usesLandscapeScreenshots: $0.screenshotURLs.first.map(isLandscape) ?? false
-                )
-            })
+        case .results(let apps, let favoriteIDs):
+            return .results(apps.map { section(for: $0, favoriteIDs: favoriteIDs) })
         case .failure(let error):
             return .error(message: message(for: error))
         }
+    }
+
+    private func section(for app: AppResult, favoriteIDs: Set<ScreenshotID>) -> Search.FetchApps.AppSection {
+        Search.FetchApps.AppSection(
+            id: app.id,
+            title: app.name,
+            subtitle: app.developer,
+            screenshots: app.screenshotURLs.indices.map { index in
+                item(for: app, at: index, isFavorite: favoriteIDs.contains(ScreenshotID(appID: app.id, url: app.screenshotURLs[index])))
+            },
+            usesLandscapeScreenshots: app.screenshotURLs.first.map(isLandscape) ?? false
+        )
+    }
+
+    private func item(for app: AppResult, at index: Int, isFavorite: Bool) -> Search.ScreenshotItemViewModel {
+        Search.ScreenshotItemViewModel(
+            id: ScreenshotID(appID: app.id, url: app.screenshotURLs[index]),
+            isFavorite: isFavorite,
+            accessibilityLabel: "\(app.name) screenshot \(index + 1) of \(app.screenshotURLs.count)"
+        )
     }
 
     /// iTunes screenshot URLs end in a size component such as `406x228bb.jpg`.

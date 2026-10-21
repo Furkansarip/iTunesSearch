@@ -14,9 +14,17 @@ nonisolated enum ImageDownloaderError: Error, Equatable {
 /// Actor isolation alone does not limit concurrency, because the actor is re-entered at every
 /// `await fetch(url)`. The limit is a counting semaphore: a fetch may only start while holding a slot,
 /// a slot is held until the fetch has actually returned or thrown, and a freed slot is handed directly
-/// to the oldest waiter.
+/// to the oldest high-priority waiter, or the oldest low-priority waiter if there is none.
+/// Active downloads are never preempted.
 actor ImageDownloader {
     typealias Fetch = @Sendable (URL) async throws -> Data
+
+    nonisolated enum Priority: Sendable {
+        /// Visible content.
+        case high
+        /// Prefetching; may be cancelled with `cancelPrefetch(_:)` while still queued.
+        case low
+    }
 
     /// The concurrency limit is per instance, so the app uses this single instance everywhere.
     static let shared = ImageDownloader()
@@ -26,9 +34,13 @@ actor ImageDownloader {
     private nonisolated struct Entry {
         let id: UUID
         let task: Task<UIImage, Error>
+        /// Only ever raised, so a download needed by visible content is never cancelled as a prefetch.
+        var priority: Priority
+        var hasSlot = false
     }
 
     private nonisolated struct Waiter {
+        /// The `Entry.id` of the download waiting for a slot.
         let id: UUID
         let continuation: CheckedContinuation<Void, Error>
     }
@@ -38,7 +50,8 @@ actor ImageDownloader {
     private nonisolated(unsafe) let cache = NSCache<NSURL, UIImage>()
     private var tasks: [URL: Entry] = [:]
     private var activeDownloads = 0
-    private var waiters: [Waiter] = []
+    private var highPriorityWaiters: [Waiter] = []
+    private var lowPriorityWaiters: [Waiter] = []
     private var currentSearchID = 0
 
     init(
@@ -61,17 +74,29 @@ actor ImageDownloader {
     }
 
     /// Cancelling the caller only stops its wait; the shared download continues for other requesters
-    /// until `cancelAll()` is called.
-    func image(for url: URL) async throws -> UIImage {
+    /// until `cancelAll()` is called. A `.high` request promotes a queued prefetch of the same URL
+    /// instead of starting a second fetch.
+    func image(for url: URL, priority: Priority = .high) async throws -> UIImage {
         if let cached = cache.object(forKey: url as NSURL) {
             return cached
         }
-        return try await task(for: url).value
+        return try await task(for: url, priority: priority).value
     }
 
+    /// Queues low-priority downloads.
     func prefetch(_ urls: [URL]) {
         for url in urls where cache.object(forKey: url as NSURL) == nil {
-            _ = task(for: url)
+            _ = task(for: url, priority: .low)
+        }
+    }
+
+    /// Cancels downloads that are still low priority and have not started fetching.
+    /// Downloads promoted by a visible request, and fetches already in flight, are left alone.
+    func cancelPrefetch(_ urls: [URL]) {
+        for url in urls {
+            guard let entry = tasks[url], entry.priority == .low, !entry.hasSlot else { continue }
+            entry.task.cancel()
+            tasks[url] = nil
         }
     }
 
@@ -100,15 +125,25 @@ actor ImageDownloader {
         prefetch(urls)
     }
 
+    func cancelPrefetch(_ urls: [URL], forSearch searchID: Int) {
+        guard searchID == currentSearchID else { return }
+        cancelPrefetch(urls)
+    }
+
     // MARK: Scheduling
 
-    private func task(for url: URL) -> Task<UIImage, Error> {
-        if let entry = tasks[url] {
+    private func task(for url: URL, priority: Priority) -> Task<UIImage, Error> {
+        if var entry = tasks[url] {
+            if priority == .high, entry.priority == .low {
+                entry.priority = .high
+                tasks[url] = entry
+                promoteWaiter(entry.id)
+            }
             return entry.task
         }
         let id = UUID()
         let task = Task { try await self.download(url, id: id) }
-        tasks[url] = Entry(id: id, task: task)
+        tasks[url] = Entry(id: id, task: task, priority: priority)
         return task
     }
 
@@ -119,7 +154,10 @@ actor ImageDownloader {
             }
         }
 
-        try await acquireSlot()
+        try await acquireSlot(for: url, id: id)
+        if tasks[url]?.id == id {
+            tasks[url]?.hasSlot = true
+        }
         let data: Data
         do {
             defer { releaseSlot() }
@@ -131,21 +169,27 @@ actor ImageDownloader {
         return image
     }
 
-    private func acquireSlot() async throws {
+    private func acquireSlot(for url: URL, id: UUID) async throws {
         try Task.checkCancellation()
 
+        // Waiters only exist while every slot is taken, so this cannot overtake queued downloads.
         if activeDownloads < maxConcurrentDownloads {
             activeDownloads += 1
             return
         }
 
-        let id = UUID()
         try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
                 if Task.isCancelled {
                     continuation.resume(throwing: CancellationError())
+                    return
+                }
+                let waiter = Waiter(id: id, continuation: continuation)
+                // Read at enqueue time, so a promotion that happened before this point is honoured.
+                if let entry = tasks[url], entry.id == id, entry.priority == .high {
+                    highPriorityWaiters.append(waiter)
                 } else {
-                    waiters.append(Waiter(id: id, continuation: continuation))
+                    lowPriorityWaiters.append(waiter)
                 }
             }
         } onCancel: {
@@ -160,16 +204,26 @@ actor ImageDownloader {
     }
 
     private func releaseSlot() {
-        if waiters.isEmpty {
-            activeDownloads -= 1
+        if !highPriorityWaiters.isEmpty {
+            highPriorityWaiters.removeFirst().continuation.resume()
+        } else if !lowPriorityWaiters.isEmpty {
+            lowPriorityWaiters.removeFirst().continuation.resume()
         } else {
-            waiters.removeFirst().continuation.resume()
+            activeDownloads -= 1
         }
     }
 
+    private func promoteWaiter(_ id: UUID) {
+        guard let index = lowPriorityWaiters.firstIndex(where: { $0.id == id }) else { return }
+        highPriorityWaiters.append(lowPriorityWaiters.remove(at: index))
+    }
+
     private func cancelWaiter(_ id: UUID) {
-        guard let index = waiters.firstIndex(where: { $0.id == id }) else { return }
-        waiters.remove(at: index).continuation.resume(throwing: CancellationError())
+        if let index = highPriorityWaiters.firstIndex(where: { $0.id == id }) {
+            highPriorityWaiters.remove(at: index).continuation.resume(throwing: CancellationError())
+        } else if let index = lowPriorityWaiters.firstIndex(where: { $0.id == id }) {
+            lowPriorityWaiters.remove(at: index).continuation.resume(throwing: CancellationError())
+        }
     }
 
     // MARK: Helpers
